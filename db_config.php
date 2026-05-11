@@ -2,7 +2,7 @@
 // Database configuration
 
 $host = 'localhost';
-$db = 'test_db';
+$db = 'hw_7';
 $user = 'root';
 $password = '';
 $charset = 'utf8mb4';
@@ -17,7 +17,5 @@ try {
     die('資料庫連線失敗: ' . $e->getMessage());
 }
 
-function escape($value)
-{
-    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-}
+// Note: utility functions like `escape()` are defined in `auth.php` to avoid
+// duplicate declarations when files include both db_config.php and auth.php.
