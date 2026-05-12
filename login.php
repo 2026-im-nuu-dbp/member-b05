@@ -6,7 +6,11 @@ require 'auth.php';
 $error = '';
 $setup = isset($_GET['setup']) ? 1 : 0;
 
-// 处理首次设定档案
+// 同步 edit_profile.php 的選項資料
+$avatars = ['😀', '😂', '😍', '😎', '🤔', '🙌', '👍', '💪'];
+$colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
+
+// 處理首次設定檔案
 if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
     $avatar = trim(isset($_POST['avatar']) ? $_POST['avatar'] : '');
@@ -20,13 +24,13 @@ if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: index.php');
             exit;
         } catch (PDOException $e) {
-            $error = '设定失败';
+            $error = '設定失敗';
         }
     } else {
-        $error = '请填写所有字段';
+        $error = '請填寫所有欄位並選擇頭像與顏色';
     }
 } elseif (!$setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    // 登入处理
+    // 登入處理
     $username = trim(isset($_POST['username']) ? $_POST['username'] : '');
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
@@ -64,90 +68,33 @@ if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $setup ? '設定檔案' : '登入' ?> - 討論區</title>
-    <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
+    <title><?= $setup ? '設定個人檔案' : '登入' ?> - 討論區</title>
+    <link rel="stylesheet" href="styles.css">
     <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: #f4f7f6;
-            margin: 0;
-            padding: 20px;
-            box-sizing: border-box;
-        }
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: <?= $setup ? '750px' : '400px' ?>; width: 100%; margin: 0 auto; }
+        .card { background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         
-        /* 動態設定寬度：登入時窄一點，設定時寬一點 */
-        .container {
-            max-width: <?= $setup ? '600px' : '400px' ?> !important;
-            width: 100%;
-            margin: auto;
+        /* 同步 edit_profile.php 的選擇器樣式 */
+        .avatar-picker, .color-picker { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); 
+            gap: 15px; 
+            margin-bottom: 20px; 
         }
-
-        .card {
-            background: #fff;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-            width: 100%;
-            box-sizing: border-box;
+        .avatar-btn, .color-btn { 
+            border: 2px solid #ddd; 
+            background: white; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: all 0.3s; 
+            height: 60px;
+            display: flex; align-items: center; justify-content: center;
         }
-        
-        /* ======== 統一成之前討論的 Flex 排版 ======== */
-        .avatar-picker, .color-picker {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            gap: 12px !important;
-            margin-bottom: 20px;
-            justify-content: flex-start;
-        }
-        
-        .avatar-label, .color-label {
-            cursor: pointer;
-            width: 60px !important;
-            height: 60px !important;
-            flex-shrink: 0;
-            border-radius: 8px;
-            transition: all 0.2s ease-in-out;
-            box-sizing: border-box;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
-        }
-
-        .avatar-label {
-            font-size: 30px;
-            border: 2px solid #ddd;
-            background: white;
-        }
-
-        .color-label {
-            border: none;
-        }
-        
-        /* 滑鼠移上去的放大效果 */
-        .avatar-label:hover, .color-label:hover {
-            transform: scale(1.1) !important;
-        }
-
-        /* 頭像被「選中」時的效果 */
-        input[type="radio"][name="avatar"]:checked + label {
-            border-color: #667eea !important;
-            background: #f0f4ff !important;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3) !important;
-            transform: scale(1.1) !important;
-        }
-
-        /* 顏色被「選中」時的效果 */
-        input[type="radio"][name="color"]:checked + label {
-            outline: 3px solid #667eea !important;
-            outline-offset: 4px !important;
-            transform: scale(1.05) !important;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
-        }
-        /* ==================================== */
+        .avatar-btn { font-size: 32px; }
+        .avatar-btn:hover, .color-btn:hover { transform: scale(1.1); }
+        .avatar-btn.selected { border-color: #667eea; background: #f0f4ff; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3); }
+        .color-btn.selected { outline: 3px solid #667eea; outline-offset: 3px; transform: scale(1.05); }
     </style>
 </head>
 <body>
@@ -159,7 +106,7 @@ if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="alert alert-error"><?= escape($error) ?></div>
             <?php endif; ?>
 
-            <form method="POST">
+            <form method="POST" id="setupForm">
                 <?php if ($setup): ?>
                     <div class="form-group">
                         <label>昵稱</label>
@@ -167,47 +114,66 @@ if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
 
                     <div class="form-group">
-                        <label>選擇頭像</label>
+                        <label>選擇大頭貼</label>
                         <div class="avatar-picker">
-                            <?php foreach(['😀','😂','😍','🤔','😎','🔥','⭐','🎉','❤️','😊','🚀','👍','😴','🎮'] as $e): ?>
-                                <input type="radio" name="avatar" value="<?=$e?>" style="display:none" id="a_<?=$e?>" required>
-                                <label for="a_<?=$e?>" class="avatar-label"><?=$e?></label>
+                            <?php foreach ($avatars as $avatar): ?>
+                                <button type="button" class="avatar-btn" data-avatar="<?= $avatar ?>"><?= $avatar ?></button>
                             <?php endforeach; ?>
                         </div>
+                        <input type="hidden" name="avatar" id="selectedAvatar" required>
                     </div>
 
                     <div class="form-group">
-                        <label>選擇專屬背景色</label>
+                        <label>選擇顏色</label>
                         <div class="color-picker">
-                            <?php foreach(['#667eea','#764ba2','#f093fb','#4facfe','#00f2fe','#43e97b','#fa709a','#fee140','#30cfd0','#330867'] as $c): ?>
-                                <input type="radio" name="color" value="<?=$c?>" style="display:none" id="c_<?=substr($c,1)?>" required>
-                                <label for="c_<?=substr($c,1)?>" class="color-label" style="background:<?=$c?>;"></label>
+                            <?php foreach ($colors as $color): ?>
+                                <button type="button" class="color-btn" data-color="<?= $color ?>" style="background-color: <?= $color ?>;"></button>
                             <?php endforeach; ?>
                         </div>
+                        <input type="hidden" name="color" id="selectedColor" required>
                     </div>
 
-                    <button type="submit" class="btn" style="width:100%; margin-top: 10px;">完成設定，開始使用</button>
+                    <button type="submit" class="btn" style="width:100%">完成設定，開始使用</button>
                 <?php else: ?>
                     <div class="form-group">
                         <label>帳號</label>
-                        <input type="text" name="username" required value="<?= escape(isset($_POST['username']) ? $_POST['username'] : '') ?>">
+                        <input type="text" name="username" required>
                     </div>
-
                     <div class="form-group">
                         <label>密碼</label>
                         <input type="password" name="password" required>
                     </div>
-
                     <button type="submit" class="btn" style="width:100%">登入</button>
                 <?php endif; ?>
             </form>
 
             <?php if (!$setup): ?>
                 <p class="text-center" style="margin-top: 20px;">
-                    還沒有帳號？<a href="register.php" style="color: #667eea; text-decoration: none; font-weight: bold;">立即註冊</a>
+                    還沒有帳號？<a href="register.php">立即註冊</a>
                 </p>
             <?php endif; ?>
         </div>
     </div>
+
+    <?php if ($setup): ?>
+    <script>
+        // 同步 edit_profile.php 的 JavaScript 選擇邏輯
+        document.querySelectorAll('.avatar-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.avatar-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                document.getElementById('selectedAvatar').value = btn.dataset.avatar;
+            });
+        });
+
+        document.querySelectorAll('.color-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                document.getElementById('selectedColor').value = btn.dataset.color;
+            });
+        });
+    </script>
+    <?php endif; ?>
 </body>
 </html>
