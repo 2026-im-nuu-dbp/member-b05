@@ -40,34 +40,28 @@ $selected_category = intval(isset($_GET['category']) ? $_GET['category'] : 0);
 try {
     $stmt = $pdo->query('SELECT id, name FROM categories ORDER BY name');
     $categories = $stmt->fetchAll();
-    
+    // 先寫好共用的前半段 SQL
+    $sql = 'SELECT n.id, n.title, c.name as category_name, m.nickname, m.avatar, m.color, n.created_at, COUNT(r.id) as reply_count
+            FROM news n
+            LEFT JOIN replies r ON n.id = r.news_id
+            LEFT JOIN members m ON n.member_id = m.id
+            LEFT JOIN categories c ON n.category_id = c.id';
+
+    $params = []; // 用來放條件參數
+
+    // 如果有選分類，就加上 WHERE 條件
     if ($selected_category > 0) {
-        $stmt = $pdo->prepare('
-            SELECT n.id, n.title, c.name as category_name,
-                m.nickname, m.avatar, m.color, n.created_at, /* 加入了 m.color */
-                COUNT(r.id) as reply_count
-            FROM news n
-            LEFT JOIN replies r ON n.id = r.news_id
-            LEFT JOIN members m ON n.member_id = m.id
-            LEFT JOIN categories c ON n.category_id = c.id
-            WHERE n.category_id = ?
-            GROUP BY n.id
-            ORDER BY n.created_at DESC
-        '); 
-        $stmt->execute([$selected_category]);
-    } else {
-        $stmt = $pdo->query('
-            SELECT n.id, n.title, c.name as category_name,
-                m.nickname, m.avatar, m.color, n.created_at, /* 加入了 m.color */
-                COUNT(r.id) as reply_count
-            FROM news n
-            LEFT JOIN replies r ON n.id = r.news_id
-            LEFT JOIN members m ON n.member_id = m.id
-            LEFT JOIN categories c ON n.category_id = c.id
-            GROUP BY n.id
-            ORDER BY n.created_at DESC
-        ');
+        $sql .= ' WHERE n.category_id = ?';
+        $params[] = $selected_category;
     }
+
+    // 補上最後的排序
+    $sql .= ' GROUP BY n.id ORDER BY n.created_at DESC';
+
+    // 執行
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $news = $stmt->fetchAll();
     $news = $stmt->fetchAll();
 } catch (PDOException $e) {
     $categories = [];

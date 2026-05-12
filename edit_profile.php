@@ -59,9 +59,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$avatars = ['😀', '😂', '😍', '😎', '🤔', '🙌', '👍', '💪'];
-$colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
-
 // 取得當前登入會員的完整資料
 function get_member_info() {
     global $pdo;

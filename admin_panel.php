@@ -5,10 +5,6 @@ require 'auth.php';
 
 require_admin();
 
-function escape($text) {
-    return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
-}
-
 $action = isset($_GET['action']) ? $_GET['action'] : 'home';
 $message = '';
 $error = '';
@@ -16,9 +12,7 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $post_action = isset($_POST['action']) ? $_POST['action'] : '';
 
-    // ==========================================
     // 1. 新增會員 (Add Member)
-    // ==========================================
     if ($post_action === 'add_member') {
         $username = trim(isset($_POST['username']) ? $_POST['username'] : '');
         $password = isset($_POST['password']) ? $_POST['password'] : '';
@@ -46,9 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } 
-    // ==========================================
+
     // 2. 修改會員資料 (Update Member)
-    // ==========================================
+
     elseif ($post_action === 'update_member') {
         $member_id = intval(isset($_POST['member_id']) ? $_POST['member_id'] : 0);
         $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
@@ -74,9 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = '暱稱不能為空！';
         }
     }
-    // ==========================================
+
     // 3. 刪除會員 (Delete Member)
-    // ==========================================
     elseif ($post_action === 'delete_member') {
         $member_id = intval(isset($_POST['member_id']) ? $_POST['member_id'] : 0);
         if ($member_id > 0 && $member_id != $_SESSION['user_id']) {

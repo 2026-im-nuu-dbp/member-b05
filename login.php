@@ -6,10 +6,6 @@ require 'auth.php';
 $error = '';
 $setup = isset($_GET['setup']) ? 1 : 0;
 
-// 同步 edit_profile.php 的選項資料
-$avatars = ['😀', '😂', '😍', '😎', '🤔', '🙌', '👍', '💪'];
-$colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
-
 // 處理首次設定檔案
 if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
