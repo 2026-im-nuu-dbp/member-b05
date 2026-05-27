@@ -21,16 +21,18 @@ function is_logged_in() {
     return isset($_SESSION['user_id'], $_SESSION['username']);
 }
 
-function get_current_user() {
-    if (!is_logged_in()) return null;
+if (!function_exists('get_current_user')) {
+    function get_current_user() {
+        if (!is_logged_in()) return null;
 
-    global $pdo;
-    try {
-        $stmt = $pdo->prepare('SELECT * FROM members WHERE id = ?');
-        $stmt->execute([$_SESSION['user_id']]);
-        return $stmt->fetch() ?: null;
-    } catch (PDOException $e) {
-        return null;
+        global $pdo;
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM members WHERE id = ?');
+            $stmt->execute([$_SESSION['user_id']]);
+            return $stmt->fetch() ?: null;
+        } catch (PDOException $e) {
+            return null;
+        }
     }
 }
 
