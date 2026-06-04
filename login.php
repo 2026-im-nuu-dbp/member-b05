@@ -1,56 +1,91 @@
 <?php
+// 設定 HTTP 標頭，指定內容為 HTML 且編碼為 UTF-8，防止中文亂碼
 header('Content-Type: text/html; charset=utf-8');
+
+// 引入資料庫設定檔與驗證函式庫
 require 'db_config.php';
 require 'auth.php';
 
+// 初始化錯誤訊息變數
 $error = '';
+
+// 【雙重身分切換開關】
+// 檢查網址列（GET）有沒有帶 `setup` 參數（例如：login.php?setup=1）
+// 如果有，變數 $setup 就會是 1（代表現在是「首次設定檔案」模式）；沒有就是 0（代表是「一般登入」模式）
 $setup = isset($_GET['setup']) ? 1 : 0;
 
-// 處理首次設定檔案
+// =========================================================================
+// 區塊一：處理「首次設定個人檔案」的表單提交（必須滿足是在 setup 模式下，且用 POST 送出表單）
+// =========================================================================
 if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 接收並清理使用者選取的暱稱、Emoji頭像、代表色
     $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
     $avatar = trim(isset($_POST['avatar']) ? $_POST['avatar'] : '');
     $color = trim(isset($_POST['color']) ? $_POST['color'] : '');
     
+    // 確保三個欄位都有確實填寫或選取
     if ($nickname && $avatar && $color) {
         try {
+            // 更新當前登入使用者的資料，並將關鍵的 `profile_complete` 欄位改為 1（代表未來不用再被強制導引到這頁了）
             $stmt = $pdo->prepare('UPDATE members SET nickname = ?, avatar = ?, color = ?, profile_complete = 1 WHERE id = ?');
             $stmt->execute([$nickname, $avatar, $color, $_SESSION['user_id']]);
+            
+            // 將最新的暱稱同步寫入 Session 中，方便發文或留言時不用一直查資料庫，提升網頁效能
             $_SESSION['nickname'] = $nickname;
+            
+            // 完美通關！重導向到論壇首頁
             header('Location: index.php');
-            exit;
+            exit; // 中斷後續 PHP 程式碼執行
         } catch (PDOException $e) {
             $error = '設定失敗';
         }
     } else {
         $error = '請填寫所有欄位並選擇頭像與顏色';
     }
-} elseif (!$setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    // 登入處理
+} 
+
+// =========================================================================
+// 區塊二：處理「一般會員登入」的表單提交（當不是 setup 模式，且用 POST 送出表單時）
+// =========================================================================
+elseif (!$setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 接收並清理登入時輸入的帳號與密碼
     $username = trim(isset($_POST['username']) ? $_POST['username'] : '');
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
+    // 防空檢查
     if (empty($username) || empty($password)) {
         $error = '帳號和密碼不能為空';
     } else {
         try {
+            // 依據帳號去資料庫撈取使用者的加密密碼、管理員標記與個人資料完成度
             $stmt = $pdo->prepare('SELECT id, password, is_admin, profile_complete FROM members WHERE username = ?');
             $stmt->execute([$username]);
             $user = $stmt->fetch();
 
+            // 如果撈得到這個帳號，且利用 password_verify() 檢查密碼比對正確
             if ($user && password_verify($password, $user['password'])) {
+                // 【核心：建立登入狀態】將會員的基本身分證存入 Session 空間
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['username'] = $username;
                 $_SESSION['is_admin'] = $user['is_admin'];
 
+                // 【分支判斷 1】如果是剛註冊完、從未設定過頭像暱稱的新手（profile_complete 為 0）
                 if ($user['profile_complete'] == 0) {
+                    // 立刻原地強制轉向到「新手導引設定」模式
                     header('Location: login.php?setup=1');
-                } else {
+                } 
+                // 【分支判斷 2】如果是資料健全的老會員
+                else {
+                    // 檢查先前有沒有被「權限攔截器（如 require_login）」攔截並留下的本來想看網址（redirect_to）
+                    // 如果有，就送他去原本想去的頁面；如果沒有，就預設去論壇首頁 index.php
                     header('Location: ' . (isset($_SESSION['redirect_to']) ? $_SESSION['redirect_to'] : 'index.php'));
+                    
+                    // 用完就立刻把這個記憶的網址擦掉，避免下次登入又莫名其妙跳去舊網頁
                     unset($_SESSION['redirect_to']);
                 }
-                exit;
+                exit; // 成功轉向，收工中斷
             } else {
+                // 為了防範駭客暴力破解，通常不把話說死（不說是用戶名錯還是密碼錯），一律顯示模糊的錯誤訊息
                 $error = '帳號或密碼錯誤';
             }
         } catch (PDOException $e) {
@@ -59,6 +94,9 @@ if ($setup && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
+
+
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>

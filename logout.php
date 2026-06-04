@@ -1,11 +1,11 @@
 <?php
-// Logout functionality
+
 require 'auth.php';
 
-// Destroy session
+//銷毀伺服器端的 Session 記憶
 session_destroy();
 
-// Redirect to login page
+
 header('Location: login.php');
 exit;
 ?>

@@ -1,73 +1,85 @@
 <?php
+// 設定 HTTP 標頭，指定內容為 HTML 且編碼為 UTF-8
 header('Content-Type: text/html; charset=utf-8');
+
+// 引入資料庫設定檔與驗證函式庫
 require 'db_config.php';
 require 'auth.php';
 
-// 处理登出
+// =========================================================================
+// 1. 快捷登出處理 (Logout)
+// =========================================================================
+// 如果網址列帶有 ?action=logout (例如: index.php?action=logout)
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
-    session_destroy();
-    header('Location: index.php');
-    exit;
+    session_destroy(); // 銷毀伺服器上的 Session 紀錄
+    header('Location: index.php'); // 重新導向回乾淨的首頁
+    exit; // 切斷後續程式執行
 }
 
-// 处理发表討論
+// 初始化提示訊息變數
 $msg = '';
+
+// =========================================================================
+// 2. 處理發表新討論貼文 (Create Thread)
+// =========================================================================
+// 必須同時滿足：1. 使用者已登入、2. 瀏覽器發送的是 POST 發文表單
 if (is_logged_in() && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $cat = intval(isset($_POST['category_id']) ? $_POST['category_id'] : 0);
-    $title = substr(trim(isset($_POST['title']) ? $_POST['title'] : ''), 0, 200);
-    $content = substr(trim(isset($_POST['content']) ? $_POST['content'] : ''), 0, 10000);
+    // 接收並清理表單資料
+    $cat = intval(isset($_POST['category_id']) ? $_POST['category_id'] : 0); // 所選分類 ID
+    $title = substr(trim(isset($_POST['title']) ? $_POST['title'] : ''), 0, 200); // 標題，限制最大 200 字
+    $content = substr(trim(isset($_POST['content']) ? $_POST['content'] : ''), 0, 10000); // 內文，限制最大 10000 字
     
+    // 安全防空檢查：分類必須大於 0，且標題與內容不能為空
     if ($cat > 0 && $title && $content) {
         try {
+            // 【安全雙重檢查】先去資料庫查查看這個分類 ID 是否真的存在（防止駭客竄改網頁表單數值）
             $stmt = $pdo->prepare('SELECT id FROM categories WHERE id = ?');
             $stmt->execute([$cat]);
+            
+            // 如果該分類確實存在
             if ($stmt->fetch()) {
+                // 執行新增貼文，記錄分類、標題、內文與發文者（從 Session 取得 user_id）
                 $stmt = $pdo->prepare('INSERT INTO news (category_id, title, content, member_id) VALUES (?, ?, ?, ?)');
                 $stmt->execute([$cat, $title, $content, $_SESSION['user_id']]);
-                $msg = '✓ 讨论已发表';
+                $msg = '✓ 討論已發表';
             }
         } catch (PDOException $e) {
-            $msg = '✗ 发表失败';
+            $msg = '✗ 發表失敗';
         }
     } else {
-        $msg = '✗ 请填写所有字段';
+        $msg = '✗ 請填寫所有欄位';
     }
 }
 
+// 獲取當前登入者的完整資料（用來在首頁歡迎某某某，或控制是否顯示發文表單），未登入則給空陣列
 $user = is_logged_in() ? get_current_user() : [];
+
+// 【分類篩選記憶】從網址列抓取使用者點選了哪個分類（例如：index.php?category=3），沒選預設為 0（看全部文章）
 $selected_category = intval(isset($_GET['category']) ? $_GET['category'] : 0);
 
+// =========================================================================
+// 3. 讀取首頁所需資料 (分類側邊欄 + 動態文章列表)
+// =========================================================================
 try {
+    // 【步驟 A】撈取所有的分類，用來渲染首頁的「分類導覽側邊欄」或發文的「下拉選單」
     $stmt = $pdo->query('SELECT id, name FROM categories ORDER BY name');
     $categories = $stmt->fetchAll();
-    // 先寫好共用的前半段 SQL
+    
+    // 【步驟 B】動態構建貼文列表的 SQL 語法
+    // 先寫好共用的前半段 SQL：
+    // 這裡用了 3 個 LEFT JOIN 來串接留言表、會員表、分類表，並用 COUNT(r.id) 來計算每篇文章的總回覆數
     $sql = 'SELECT n.id, n.title, c.name as category_name, m.nickname, m.avatar, m.color, n.created_at, COUNT(r.id) as reply_count
             FROM news n
             LEFT JOIN replies r ON n.id = r.news_id
             LEFT JOIN members m ON n.member_id = m.id
             LEFT JOIN categories c ON n.category_id = c.id';
 
-    $params = []; // 用來放條件參數
+    $params = []; // 準備一個空口袋，用來裝安全綁定的參數
 
-    // 如果有選分類，就加上 WHERE 條件
-    if ($selected_category > 0) {
-        $sql .= ' WHERE n.category_id = ?';
-        $params[] = $selected_category;
-    }
+    // 【動態拼接條件】如果使用者有選取
 
-    // 補上最後的排序
-    $sql .= ' GROUP BY n.id ORDER BY n.created_at DESC';
 
-    // 執行
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $news = $stmt->fetchAll();
-    $news = $stmt->fetchAll();
-} catch (PDOException $e) {
-    $categories = [];
-    $news = [];
-}
-?>
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>

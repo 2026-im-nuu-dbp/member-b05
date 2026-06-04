@@ -1,56 +1,101 @@
+
 <?php
+// 設定 HTTP 標頭，指定內容為 HTML 且編碼為 UTF-8
 header('Content-Type: text/html; charset=utf-8');
+
+// 引入資料庫與權限控制函式庫
 require 'db_config.php';
 require 'auth.php';
 
+// 【安全守門員】強制檢查使用者是否已登入且完成初始設定，若未符合會直接被踢走
 require_profile_complete();
+
+// 呼叫下方的自訂函式，撈取當前登入會員的最新資料。如果沒撈到就給予空陣列 []
 $user = get_member_info() ?: [];
+
+// 初始化提示訊息與錯誤訊息變數
 $error = '';
 $success = '';
 
+// 【第一大部分：處理表單提交 (POST 請求)】
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 獲取前端隱私表單傳過來的動作名稱（是更新資料，還是改密碼）
     $action = isset($_POST['action']) ? $_POST['action'] : '';
 
+    // ==========================================
+    // 1. 修改一般個人檔案 (Update Profile)
+    // ==========================================
     if ($action === 'update_profile') {
+        // 接收並清理使用者輸入的資料
         $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
-        $color = trim(isset($_POST['color']) ? $_POST['color'] : '#667eea');
-        $avatar = trim(isset($_POST['avatar']) ? $_POST['avatar'] : '');
+        $color = trim(isset($_POST['color']) ? $_POST['color'] : '#667eea'); // 預設給紫色底
+        $avatar = trim(isset($_POST['avatar']) ? $_POST['avatar'] : ''); // 接收頭像 Emoji
 
+        // 驗證欄位
         if (empty($nickname)) {
             $error = '昵稱不能為空';
         } else {
             try {
+                // 安全更新資料庫中「當前登入者（$_SESSION['user_id']）」的暱稱、代表色與頭像
                 $stmt = $pdo->prepare('UPDATE members SET nickname = ?, color = ?, avatar = ? WHERE id = ?');
                 $stmt->execute([$nickname, $color, $avatar, $_SESSION['user_id']]);
+                
                 $success = '個人檔案已更新！';
+                
+                // 【重新整理資料】更新成功後，重新去資料庫撈一次最新資料，讓網頁畫面上立刻更新
                 $user = get_member_info();
             } catch (PDOException $e) {
-                $error = '更新失敗';
+                $error = '更新失敗'; // 實務上可寫入系統 Log，前端顯示模糊錯誤確保安全
             }
         }
-    } elseif ($action === 'change_password') {
+    } 
+    
+    // ==========================================
+    // 2. 變更密碼 (Change Password)
+    // ==========================================
+    elseif ($action === 'change_password') {
+        // 接收使用者輸入的舊密碼、新密碼、確認新密碼
         $old = isset($_POST['old_password']) ? $_POST['old_password'] : '';
         $new = isset($_POST['new_password']) ? $_POST['new_password'] : '';
         $confirm = isset($_POST['new_password_confirm']) ? $_POST['new_password_confirm'] : '';
 
+        // 【安全防線 1】新舊密碼欄位不可留空
         if (empty($old) || empty($new)) {
             $error = '密碼不能為空';
-        } elseif (!password_verify($old, $user['password'])) {
+        } 
+        // 【安全防線 2】比對舊密碼。
+        // 使用 password_verify() 將使用者輸入的明文舊密碼，與資料庫中的雜湊密碼（$user['password']）進行解密比對
+        elseif (!password_verify($old, $user['password'])) {
             $error = '舊密碼錯誤';
-        } else {
+        } 
+        // 舊密碼過關後，開始檢查新密碼格式
+        else {
+            // 呼叫 auth.php 裡定義的自訂驗證函式，檢查新密碼長度與兩次輸入是否相符
             $pass_check = validate_password($new);
             $match_check = validate_passwords_match($new, $confirm);
+            
+            // 【安全防線 3】新密碼長度不足
             if (!$pass_check['valid']) {
                 $error = $pass_check['error'];
-            } elseif (!$match_check['valid']) {
+            } 
+            // 【安全防線 4】兩次新密碼不相同
+            elseif (!$match_check['valid']) {
                 $error = $match_check['error'];
-            } else {
+            } 
+            // 所有檢查全部安全通過，允許修改資料庫
+            else {
                 try {
+                    // 將新密碼進行安全性雜湊（Hash）加密
                     $hashed = password_hash($new, PASSWORD_DEFAULT);
+                    
+                    // 更新當前登入者的密碼
                     $stmt = $pdo->prepare('UPDATE members SET password = ? WHERE id = ?');
                     $stmt->execute([$hashed, $_SESSION['user_id']]);
+                    
                     $success = '密碼已變更！';
-                    $user = get_current_user();
+                    
+                    // 這裡原作者寫 get_current_user()，效果等同於 get_member_info()
+                    $user = get_current_user(); 
                 } catch (PDOException $e) {
                     $error = '變更失敗';
                 }
@@ -59,25 +104,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// 取得當前登入會員的完整資料
+// 【第二部分：自訂函式區塊】
+// 獲取當前登入會員的完整資料
 function get_member_info() {
-    global $pdo;
+    global $pdo; // 引進全域的資料庫連線物件 $pdo
     
-    // 如果沒有登入，回傳空陣列
+    // 防禦性檢查：如果根本沒有登入的 Session，直接回傳空陣列，不往下執行
     if (!isset($_SESSION['user_id'])) {
         return [];
     }
 
-    // 從資料庫抓取該使用者的所有欄位資料
-    $stmt = $pdo->prepare('SELECT * FROM members WHERE id = ?');
-    $stmt->execute([$_SESSION['user_id']]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    // 如果有抓到資料就回傳，沒有的話回傳空陣列
-    return $user ?: [];
+    try {
+        // 依據 Session 裡記錄的 user_id 去資料庫撈取整行會員資料
+        $stmt = $pdo->prepare('SELECT * FROM members WHERE id = ?');
+        $stmt->execute([$_SESSION['user_id']]);
+        
+        // FETCH_ASSOC 代表只要「欄位名稱作為鍵值」的關聯陣列格式（例如：['username' => 'tom']）
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        // 使用三元運算子簡寫：如果 $user 有撈到資料就回傳 $user，否則（例如帳號突然被刪了）回傳空陣列 []
+        return $user ?: [];
+    } catch (PDOException $e) {
+        return [];
+    }
 }
-
 ?>
+
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>

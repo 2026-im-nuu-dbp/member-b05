@@ -1,39 +1,57 @@
 <?php
+
 header('Content-Type: text/html; charset=utf-8');
+
+// 引入資料庫設定檔與認證函式庫
 require 'db_config.php';
 require 'auth.php';
 
+// 呼叫 auth.php 的函式，如果當前使用者不是管理員，直接強行踢回首頁並中斷執行
 require_admin();
 
+// 透過 GET 請求獲取當前的頁面動作（例如：看首頁、看會員列表、看分類），預設值為 'home'（首頁）
 $action = isset($_GET['action']) ? $_GET['action'] : 'home';
+
+// 初始化全域的提示訊息與錯誤訊息變數
 $message = '';
 $error = '';
 
+// 【第一大部分：處理表單提交 (POST 請求)】
+// 當管理員點擊任何表單按鈕（新增、修改、刪除）時，會進入這個區塊
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 獲取表單傳過來的具體動作名稱
     $post_action = isset($_POST['action']) ? $_POST['action'] : '';
 
+    // ==========================================
     // 1. 新增會員 (Add Member)
+    // ==========================================
     if ($post_action === 'add_member') {
+        // 接收並清理輸入資料
         $username = trim(isset($_POST['username']) ? $_POST['username'] : '');
         $password = isset($_POST['password']) ? $_POST['password'] : '';
         $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
-        $is_admin = isset($_POST['is_admin']) ? 1 : 0;
+        $is_admin = isset($_POST['is_admin']) ? 1 : 0; // 如果有勾選管理員就是 1，沒勾就是 0
         
+        // 後端欄位防空驗證
         if (empty($username) || empty($password) || empty($nickname)) {
             $error = '請填寫所有必填欄位';
         } else {
             try {
+                // 檢查此帳號是否已被他人註冊
                 $stmt = $pdo->prepare('SELECT id FROM members WHERE username = ?');
                 $stmt->execute([$username]);
                 if ($stmt->fetch()) {
                     $error = '新增失敗：帳號已存在';
                 } else {
+                    // 將新密碼進行安全性雜湊加密
                     $hashed = password_hash($password, PASSWORD_DEFAULT);
-                    // 預設給予基礎顏色與頭像，並標記 profile_complete = 1 讓其不必強制走設定流程
+                    
+                    // 執行寫入。這裡預設設定 profile_complete = 1，讓後台手動新增的會員免去填寫初始資料的步驟
                     $stmt = $pdo->prepare('INSERT INTO members (username, password, nickname, is_admin, profile_complete, color, avatar) VALUES (?, ?, ?, ?, 1, "#667eea", "😀")');
                     $stmt->execute([$username, $hashed, $nickname, $is_admin]);
+                    
                     $message = '會員已成功新增！';
-                    $action = 'members';
+                    $action = 'members'; // 成功後，將頁面轉入會員列表
                 }
             } catch (PDOException $e) {
                 $error = '新增會員失敗: ' . $e->getMessage();
@@ -41,27 +59,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } 
 
+    // ==========================================
     // 2. 修改會員資料 (Update Member)
-
+    // ==========================================
     elseif ($post_action === 'update_member') {
+
+        // intval() 用於強制轉型為整數，確保安全
+        // 先用三元運算子檢查是否有傳入 'member_id'，有就取值，沒有就給預設值 '0'。
         $member_id = intval(isset($_POST['member_id']) ? $_POST['member_id'] : 0);
+        // 檢查是否有輸入 'nickname'，若有則取值，若無則給予空字串 ''
         $nickname = trim(isset($_POST['nickname']) ? $_POST['nickname'] : '');
+        // 檢查表單是否有填寫 'new_password'（後台修改資料時，密碼通常是選填，留空代表不修改）
         $new_password = isset($_POST['new_password']) ? $_POST['new_password'] : '';
+        // 在 HTML 中，如果 Checkbox 沒有被勾選，表單送出時後端完全「不會收到這個欄位」（即 isset 為 false）。
+        // 因此這裡判斷：如果 isset($_POST['is_admin']) 為 true（代表有勾選），就給值 1；沒勾選就給值 0。
         $is_admin = isset($_POST['is_admin']) ? 1 : 0;
 
         if ($member_id > 0 && !empty($nickname)) {
             try {
-                if (!empty($new_password)) { // 如果有輸入新密碼，就連密碼一起改
+                // 如果後台有填寫「新密碼」欄位，就連同新密碼一起加密更新
+                if (!empty($new_password)) {
                     $hashed = password_hash($new_password, PASSWORD_DEFAULT);
                     $stmt = $pdo->prepare('UPDATE members SET nickname = ?, password = ?, is_admin = ? WHERE id = ?');
                     $stmt->execute([$nickname, $hashed, $is_admin, $member_id]);
-                } else { // 沒輸入密碼就只改其他資料
+                } else { 
+                    // 如果「新密碼」欄位留空，代表不修改密碼，維持原樣，只更新暱稱與權限
                     $stmt = $pdo->prepare('UPDATE members SET nickname = ?, is_admin = ? WHERE id = ?');
                     $stmt->execute([$nickname, $is_admin, $member_id]);
                 }
                 $message = '會員資料已更新！';
-                $action = 'members';
-            } catch (PDOException $e) {
+                    $action = 'members'; // 成功後導向會員列表
+                } catch (PDOException $e) {
                 $error = '更新失敗: ' . $e->getMessage();
             }
         } else {
@@ -69,9 +97,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // ==========================================
     // 3. 刪除會員 (Delete Member)
+    // ==========================================
     elseif ($post_action === 'delete_member') {
         $member_id = intval(isset($_POST['member_id']) ? $_POST['member_id'] : 0);
+        
+        // 【核心安全檢查】檢查要刪除的 ID 是否大於 0，且「不能等於目前登入的使用者 ID」
+        // 這能防止管理員不小心把自己刪除，導致再也進不來後台
         if ($member_id > 0 && $member_id != $_SESSION['user_id']) {
             try {
                 $stmt = $pdo->prepare('DELETE FROM members WHERE id = ?');
@@ -85,20 +118,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = '無法刪除您自己！';
         }
     }
-    // 分類管理的 POST 行為保留
-    elseif ($post_action === 'add_category') {
-        $name = trim(isset($_POST['name']) ? $_POST['name'] : '');
-        $description = trim(isset($_POST['description']) ? $_POST['description'] : '');
-        if (empty($name)) { $error = '分類名稱不能為空'; } 
-        else {
-            try {
-                $stmt = $pdo->prepare('INSERT INTO categories (name, description) VALUES (?, ?)');
-                $stmt->execute([$name, $description]);
-                $message = '分類已新增';
-                $action = 'categories';
-            } catch (PDOException $e) { $error = '新增失敗: ' . $e->getMessage(); }
+    
+// ==========================================
+// 4. 新增文章分類 (Add Category)
+// ==========================================
+// 當管理員提交的表單動作（$post_action）剛好是 'add_category' 時，執行以下區塊
+elseif ($post_action === 'add_category') {
+    
+    // 接收並清理前端傳來的分類名稱，用 trim() 拔除前後不小心的空格
+    $name = trim(isset($_POST['name']) ? $_POST['name'] : '');
+    
+    // 接收並清理分類的詳細描述（選填），同樣用 trim() 清理空格
+    $description = trim(isset($_POST['description']) ? $_POST['description'] : '');
+    
+    // 【欄位檢查】分類名稱是必填項目，如果發現是空的（empty）
+    if (empty($name)) { 
+        // 儲存錯誤訊息，阻擋後續的資料庫寫入
+        $error = '分類名稱不能為空'; 
+    } else {
+        // 欄位檢查通過，準備安全地寫入資料庫
+        try {
+            // 使用「?」佔位符準備 SQL 語法，防止 SQL 注入（SQL Injection）
+            $stmt = $pdo->prepare('INSERT INTO categories (name, description) VALUES (?, ?)');
+            
+            // 執行 SQL 語法，並把真實的「分類名稱」與「分類描述」帶入對應的問號中
+            $stmt->execute([$name, $description]);
+            
+            // 寫入成功，設定提示訊息
+            $message = '分類已新增';
+            
+            // 【重要狀態切換】將當前的頁面動作（$action）切換為 'categories'
+            // 這樣在程式碼後續的讀取區塊中，就會自動去撈取最新的分類列表，讓網頁直接秀出新分類
+            $action = 'categories'; 
+            
+        } catch (PDOException $e) { 
+            // 如果資料庫層面發生錯誤（例如：分類名稱設定了 UNIQUE 鍵且重複了），則捕捉異常並回報
+            $error = '新增失敗: ' . $e->getMessage(); 
         }
-    } elseif ($post_action === 'delete_category') {
+    }
+}
+    
+    // ==========================================
+    // 5. 刪除文章分類 (Delete Category)
+    // ==========================================
+    elseif ($post_action === 'delete_category') {
         $cat_id = intval(isset($_POST['category_id']) ? $_POST['category_id'] : 0);
         if ($cat_id > 0) {
             try {
@@ -106,54 +169,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$cat_id]);
                 $message = '分類已刪除';
                 $action = 'categories';
-            } catch (PDOException $e) { $error = '刪除失敗: ' . $e->getMessage(); }
+            } catch (PDOException $e) { 
+                $error = '刪除失敗: ' . $e->getMessage(); 
+            }
         }
     }
 }
 
-$data = [];
+// 【第二大部分：為前端畫面準備資料 (根據 $action 讀取資料庫)】
+// 無論有沒有經過上面的 POST 處理，最後都會來到這裡，依據當前的 $action 撈取對應的資料
+$data = []; // 建立一個乾淨的容器陣列用來裝撈出來的資料
+
+// 情況 A：管理員目前在看「分類管理」頁面
 if ($action === 'categories') {
     try {
+        // query() 用於不需要綁定參數的純查詢，依照分類名稱排序（A-Z / 中文編碼）
         $stmt = $pdo->query('SELECT * FROM categories ORDER BY name');
-        $data['categories'] = $stmt->fetchAll();
+        $data['categories'] = $stmt->fetchAll(); // 把所有分類撈出來存進 $data
     } catch (PDOException $e) {
         $error = '讀取分類失敗: ' . $e->getMessage();
     }
-} elseif ($action === 'members') {
+} 
+// 情況 B：管理員目前在看「會員管理列表」頁面
+elseif ($action === 'members') {
     try {
+        // 撈出所有會員，並依據加入時間由新到舊（降冪）排序
         $stmt = $pdo->query('SELECT * FROM members ORDER BY created_at DESC');
         $data['members'] = $stmt->fetchAll();
     } catch (PDOException $e) {
         $error = '讀取會員失敗: ' . $e->getMessage();
     }
-} elseif ($action === 'edit_member') {
+} 
+// 情況 C：管理員點擊了某個會員的「修改」按鈕
+elseif ($action === 'edit_member') {
+    // 從網址列獲取要修改的會員 ID (例如：admin.php?action=edit_member&id=5)
     $edit_id = intval(isset($_GET['id']) ? $_GET['id'] : 0);
     try {
         $stmt = $pdo->prepare('SELECT * FROM members WHERE id = ?');
         $stmt->execute([$edit_id]);
-        $data['edit_user'] = $stmt->fetch();
+        $data['edit_user'] = $stmt->fetch(); // 撈出該名會員的單筆資料
+        
+        // 安全機制：防範管理員在網址列亂打不存在的 ID
         if (!$data['edit_user']) {
             $error = '找不到該會員資料';
-            $action = 'members';
+            $action = 'members'; // 找不到就強制轉回列表頁
         }
     } catch (PDOException $e) {
         $error = '讀取會員失敗: ' . $e->getMessage();
     }
-} else {
+} 
+// 情況 D：預設狀況（也就是 $action === 'home'，後台儀表板主頁）
+else {
     try {
+        // 利用 COUNT(*) 快速計算整個網站的總體數據，用來在後台主頁顯示統計小卡
         $stmt = $pdo->query('SELECT COUNT(*) as count FROM members');
-        $data['member_count'] = $stmt->fetch()['count'];
+        $data['member_count'] = $stmt->fetch()['count']; // 總會員數
+        
         $stmt = $pdo->query('SELECT COUNT(*) as count FROM news');
-        $data['news_count'] = $stmt->fetch()['count'];
+        $data['news_count'] = $stmt->fetch()['count']; // 總文章/公告數
+        
         $stmt = $pdo->query('SELECT COUNT(*) as count FROM replies');
-        $data['reply_count'] = $stmt->fetch()['count'];
+        $data['reply_count'] = $stmt->fetch()['count']; // 總回覆數
+        
         $stmt = $pdo->query('SELECT COUNT(*) as count FROM categories');
-        $data['category_count'] = $stmt->fetch()['count'];
+        $data['category_count'] = $stmt->fetch()['count']; // 總分類數
     } catch (PDOException $e) {
         $error = '讀取統計資訊失敗: ' . $e->getMessage();
     }
 }
 ?>
+
+
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
